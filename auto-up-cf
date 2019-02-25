@@ -7,33 +7,63 @@ else
 	source ./.config
 fi
 
-
-domain_id=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones" \
+result=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones" \
 	-H "X-Auth-Email: $AuthEmail" \
 	-H "X-Auth-Key: $AuthKey" \
-	-H "Content-Type: application/json" | jq -r --arg domain "$domain" '.["result"] | .[] | select(.name==$domain) | .id')
+	-H "Content-Type: application/json")
+
+if [[ ! -z $result ]]; then
+	if [[ $(echo $result | jq '.["success"]') == "true" ]]; then
+		domain_id=$(echo ${result} | jq -r --arg domain "$domain" '.["result"] | .[] | select(.name==$domain) | .id')
+	else
+		echo "$(date): $(echo $result | jq '.errors[].error_chain[].message' 2>/dev/null || echo $result | jq '.errors[].message' 2>/dev/null)"
+		# exit 6 - unable to retrieve dns zones, wil probably add some more specific error detection
+		exit 6
+	fi
+else
+	echo "$(date): Unable to make API call"
+	# exit 21 - unable to make API call
+	exit 21
+fi
 
 if [[ ! -z $subdomain ]]; then
 	domain="${subdomain}.${domain}"
 fi
-read -r live_record live_record_id < <(curl -sX GET "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records" \
+
+result=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records" \
 	-H "X-Auth-Email: $AuthEmail" \
 	-H "X-Auth-Key: $AuthKey" \
-	-H "Content-Type: application/json" | jq -r --arg domain "$domain" --arg record_type "$record_type" '.["result"] | .[] | select(.name==$domain and .type==$record_type) | .content,.id' | tr '\n' ' ')
+	-H "Content-Type: application/json")
 
-our_ip=$(dig +short myip.opendns.com @resolver1.opendns.com)
-
-if [[ $live_record == $our_ip ]]; then
-	echo "yay, same ip!"
+if [[ $(echo $result | jq '.["success"]') == "true" ]]; then
+	read -r live_record live_record_id < <(echo $result | jq -r --arg domain "$domain" --arg record_type "$record_type" '.["result"] | .[] | select(.name==$domain and .type==$record_type) | .content,.id' | tr '\n' ' ')
 else
-	echo "ip differs, updating"
-	json_request="{\"type\":\"${record_type}\",\"name\":\"${domain}\",\"content\":\"${our_ip}\"}"
+	#echo "$(date): $(echo $result | jq '.errors[].error_chain[].message')"
+	echo "$(date): $(echo $result | jq '.errors[].error_chain[].message' 2>/dev/null || echo $result | jq '.errors[].message' 2>/dev/null)"
+	# exit 11 - unable to retrieve dns record
+	exit 11
+fi
 
-	curl -X PUT "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records/${live_record_id}" \
+new_record=$(dig +short myip.opendns.com @resolver1.opendns.com)
+
+if [[ -z $new_record ]]; then
+	echo "$(date): Could not obtain the server's public IP address"
+	# exit 16 - could not obtain the server's public IP address
+	exit 16
+fi
+
+if [[ $live_record == $new_record ]]; then
+	echo "$(date): match,server:$new_record,live_record:$live_record"
+else
+	json_request="{\"type\":\"${record_type}\",\"name\":\"${domain}\",\"content\":\"${new_record}\"}"
+	result=$(curl -sX PUT "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records/${live_record_id}" \
 		-H "X-Auth-Email: $AuthEmail" \
 		-H "X-Auth-Key: $AuthKey" \
 		-H "Content-Type: application/json" \
-		--data ${json_request}
+		--data ${json_request})
+
+	echo "$(date): nomatch,server:$new_record,live_record:$live_record"
+	echo "$(date): $result"
 fi
 
 
@@ -41,5 +71,5 @@ fi
 #ID: $domain_id
 #Live record: ${live_record}
 #Live record id: $live_record_id
-#Our IP: $our_ip
+#Our IP: $new_record
 #Record type: $record_type"
