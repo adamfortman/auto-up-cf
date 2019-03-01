@@ -7,6 +7,23 @@ else
 	source ./.config
 fi
 
+if [[ -f ./.dns-cache && -s ./.dns-cache ]]; then
+	read -r live_record live_record_id < ./.dns-cache
+	if [[ $? -eq 0 ]]; then
+		echo "$(date): found cache: $live_record,$live_record_id"
+	else
+		echo "$(date): error reading from cache file"
+	fi
+fi
+
+new_record=$(dig +short myip.opendns.com @resolver1.opendns.com)
+
+if [[ -z $new_record ]]; then
+	echo "$(date): Could not obtain the server's public IP address"
+	# exit 16 - could not obtain the server's public IP address
+	exit 16
+fi
+
 result=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones" \
 	-H "X-Auth-Email: $AuthEmail" \
 	-H "X-Auth-Key: $AuthKey" \
@@ -30,26 +47,25 @@ if [[ ! -z $subdomain ]]; then
 	domain="${subdomain}.${domain}"
 fi
 
-result=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records" \
-	-H "X-Auth-Email: $AuthEmail" \
-	-H "X-Auth-Key: $AuthKey" \
-	-H "Content-Type: application/json")
+if [[ -z $live_record ]]; then
+	result=$(curl -sX GET "https://api.cloudflare.com/client/v4/zones/${domain_id}/dns_records" \
+		-H "X-Auth-Email: $AuthEmail" \
+		-H "X-Auth-Key: $AuthKey" \
+		-H "Content-Type: application/json")
 
-if [[ $(echo $result | jq '.["success"]') == "true" ]]; then
-	read -r live_record live_record_id < <(echo $result | jq -r --arg domain "$domain" --arg record_type "$record_type" '.["result"] | .[] | select(.name==$domain and .type==$record_type) | .content,.id' | tr '\n' ' ')
-else
-	#echo "$(date): $(echo $result | jq '.errors[].error_chain[].message')"
-	echo "$(date): $(echo $result | jq '.errors[].error_chain[].message' 2>/dev/null || echo $result | jq '.errors[].message' 2>/dev/null)"
-	# exit 11 - unable to retrieve dns record
-	exit 11
-fi
-
-new_record=$(dig +short myip.opendns.com @resolver1.opendns.com)
-
-if [[ -z $new_record ]]; then
-	echo "$(date): Could not obtain the server's public IP address"
-	# exit 16 - could not obtain the server's public IP address
-	exit 16
+	if [[ $(echo $result | jq '.["success"]') == "true" ]]; then
+		read -r live_record live_record_id < <(echo $result | jq -r --arg domain "$domain" --arg record_type "$record_type" '.["result"] | .[] | select(.name==$domain and .type==$record_type) | .content,.id' | tr '\n' ' ')
+		echo "$live_record $live_record_id" > ./.dns-cache
+		if [[ $? -eq 0 ]]; then
+			echo "$(date): cached CF response: $live_record,$live_record_id"
+		else
+			echo "$(date): error writing cache to file"
+		fi
+	else
+		echo "$(date): $(echo $result | jq '.errors[].error_chain[].message' 2>/dev/null || echo $result | jq '.errors[].message' 2>/dev/null)"
+		# exit 11 - unable to retrieve dns record
+		exit 11
+	fi
 fi
 
 if [[ $live_record == $new_record ]]; then
