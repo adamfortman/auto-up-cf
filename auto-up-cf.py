@@ -7,7 +7,7 @@ import dns.resolver
 
 def print_log(message):
 	now = datetime.datetime.now().strftime("%c")
-	print(now, "[auto-up-cf.py]", message)
+#	print(now, "[auto-up-cf.py]", message)
 	try:
 		fh = open('./auto-up-cf.log', 'a')
 		fh.write(now + " [auto-up-cf.py] " + message + "\n")
@@ -15,7 +15,7 @@ def print_log(message):
 		pass
 
 def main():
-	domain = subdomain = record_type = cached_record = cached_record_id = zone_id = zone_name = None
+	domain = subdomain = record_type = live_record = cached_record = cached_record_id = zone_id = zone_name = None
 	try:
 		fh = open('./.config', 'r')
 	except FileNotFoundError:
@@ -84,12 +84,16 @@ def main():
 		domain = subdomain + "." + domain
 
 	for dns_record in dns_records:
-		if dns_record['name'] == domain:
+		if dns_record['name'] == domain and dns_record['type'] == "A":
 			live_record = dns_record['content']
 			live_record_id = dns_record['id']
 			break
 
-	if live_record is not None and (live_record != new_record or new_record != cached_record):
+	if live_record is None:
+		print_log("Unable to find " + domain + " in Cloudflare")
+		sys.exit()
+
+	if live_record is not None and new_record != cached_record:
 		try:
 			fh = open('./.dns-cache', 'w')
 			fh.write(live_record + " " + live_record_id)
@@ -100,6 +104,7 @@ def main():
 		log_entry = "cached CF response: " + live_record + " " + live_record_id
 		print_log(log_entry)
 
+	if live_record is not None and live_record != new_record:
 		cf.zones.dns_records.put(zone_id,live_record_id,data={'name':domain, 'type':'A', 'content':new_record})
 		print_log("updated CF")
 	else:
