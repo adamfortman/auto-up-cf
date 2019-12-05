@@ -5,11 +5,15 @@ import datetime
 import CloudFlare
 import dns.resolver
 
+config_file = './.config'
+dns_cache = './.dns-cache'
+
 def print_log(message):
 	now = datetime.datetime.now().strftime("%c")
-#	print(now, "[auto-up-cf.py]", message)
+	log_file = '/var/log/auto-up-cf.log'
+
 	try:
-		fh = open('./auto-up-cf.log', 'a')
+		fh = open(log_file, 'a')
 		fh.write(now + " [auto-up-cf.py] " + message + "\n")
 	except FileNotFoundError:
 		pass
@@ -17,7 +21,7 @@ def print_log(message):
 def main():
 	domain = subdomain = record_type = live_record = cached_record = cached_record_id = zone_id = zone_name = None
 	try:
-		fh = open('./.config', 'r')
+		fh = open(config_file, 'r')
 	except FileNotFoundError:
 		print_log(".config not found")
 		sys.exit()
@@ -38,7 +42,7 @@ def main():
 		sys.exit()
 
 	try:
-		fh = open('./.dns-cache', 'r')
+		fh = open(dns_cache, 'r')
 	except FileNotFoundError:
 		print_log(".dns-cache not found")
 		sys.exit()
@@ -60,11 +64,12 @@ def main():
 	try:
 		answer = resolv.query('myip.opendns.com', 'A')
 		for rdata in answer:
-			new_record = str(rdata)
+			server_ip = str(rdata)
 	except:
 		print_log("couldn't obtain IP address")
+		sys.exit()
 
-	if cached_record == new_record:
+	if cached_record == server_ip:
 		print_log("server IP matches cache")
 		sys.exit()
 
@@ -93,9 +98,9 @@ def main():
 		print_log("Unable to find " + domain + " in Cloudflare")
 		sys.exit()
 
-	if live_record is not None and new_record != cached_record:
+	if live_record is not None and server_ip != cached_record:
 		try:
-			fh = open('./.dns-cache', 'w')
+			fh = open(dns_cache, 'w')
 			fh.write(live_record + " " + live_record_id)
 		except FileNotFoundError:
 			print_log(".dns-cache not found")
@@ -104,8 +109,8 @@ def main():
 		log_entry = "cached CF response: " + live_record + " " + live_record_id
 		print_log(log_entry)
 
-	if live_record is not None and live_record != new_record:
-		cf.zones.dns_records.put(zone_id,live_record_id,data={'name':domain, 'type':'A', 'content':new_record})
+	if live_record is not None and live_record != server_ip:
+		cf.zones.dns_records.put(zone_id,live_record_id,data={'name':domain, 'type':'A', 'content':server_ip})
 		print_log("updated CF")
 	else:
 		print_log("live record and server IP match")

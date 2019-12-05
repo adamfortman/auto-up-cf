@@ -82,10 +82,3 @@ else
 	echo "$(date): $result"
 fi
 
-
-#echo "Domain: $domain
-#ID: $domain_id
-#Live record: ${live_record}
-#Live record id: $live_record_id
-#Our IP: $new_record
-#Record type: $record_type"
