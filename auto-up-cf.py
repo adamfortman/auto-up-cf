@@ -5,8 +5,8 @@ import datetime
 import CloudFlare
 import dns.resolver
 
-config_file = './.config'
-dns_cache = './.dns-cache'
+config_file = '.config'
+dns_cache = '.dns-cache'
 
 def print_log(message):
 	now = datetime.datetime.now().strftime("%c")
@@ -23,7 +23,7 @@ def main():
 	try:
 		fh = open(config_file, 'r')
 	except FileNotFoundError:
-		print_log(".config not found")
+		print_log(config_file + " not found")
 		sys.exit()
 
 	for line in fh:
@@ -44,7 +44,7 @@ def main():
 	try:
 		fh = open(dns_cache, 'r')
 	except FileNotFoundError:
-		print_log(".dns-cache not found")
+		print_log(dns_cache + " not found")
 		sys.exit()
 
 	for line in fh:
@@ -103,7 +103,7 @@ def main():
 			fh = open(dns_cache, 'w')
 			fh.write(live_record + " " + live_record_id)
 		except FileNotFoundError:
-			print_log(".dns-cache not found")
+			print_log(dns_cache + " not found")
 			sys.exit()
 
 		log_entry = "cached CF response: " + live_record + " " + live_record_id
