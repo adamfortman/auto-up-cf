@@ -7,10 +7,10 @@ import dns.resolver
 
 config_file = '.config'
 dns_cache = '.dns-cache'
+log_file = '/var/log/auto-up-cf.log'
 
 def print_log(message):
 	now = datetime.datetime.now().strftime("%c")
-	log_file = '/var/log/auto-up-cf.log'
 
 	try:
 		fh = open(log_file, 'a')
@@ -43,13 +43,11 @@ def main():
 
 	try:
 		fh = open(dns_cache, 'r')
+		for line in fh:
+			cached_record = line.split()[0]
+			cached_record_id = line.split()[1]
 	except FileNotFoundError:
-		print_log(dns_cache + " not found")
-		sys.exit()
-
-	for line in fh:
-		cached_record = line.split()[0]
-		cached_record_id = line.split()[1]
+		pass
 
 	if cached_record is not None and cached_record_id is not None:
 		log_entry = "found cached results: " + cached_record + " " + cached_record_id
