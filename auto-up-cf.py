@@ -2,8 +2,10 @@
 
 import sys
 import datetime
-import CloudFlare
 import dns.resolver
+import json
+import os
+import CloudFlare
 
 config_file = '.config'
 dns_cache = '.dns-cache'
@@ -19,7 +21,7 @@ def print_log(message):
 		pass
 
 def main():
-	domain = subdomain = record_type = live_record = cached_record = cached_record_id = zone_id = zone_name = None
+	domain = subdomain = record_type = live_record = live_record_id = cached_record = cached_record_id = zone_id = zone_name = None
 	try:
 		fh = open(config_file, 'r')
 	except FileNotFoundError:
@@ -41,13 +43,15 @@ def main():
 		print_log("record_type is not defined")
 		sys.exit()
 
-	try:
-		fh = open(dns_cache, 'r')
-		for line in fh:
-			cached_record = line.split()[0]
-			cached_record_id = line.split()[1]
-	except FileNotFoundError:
-		pass
+	if os.path.exists(dns_cache):
+		try:
+			with open(dns_cache) as json_file:
+				cached_data = json.load(json_file)
+				cached_domain = cached_data['domain']
+				cached_record = cached_data['live_record']
+				cached_record_id = cached_data['live_record_id']
+		except Exception as e:
+			print("got %s on json.load()" % e)
 
 	if cached_record is not None and cached_record_id is not None:
 		log_entry = "found cached results: " + cached_record + " " + cached_record_id
@@ -92,14 +96,14 @@ def main():
 			live_record_id = dns_record['id']
 			break
 
-	if live_record is None:
-		print_log("Unable to find " + domain + " in Cloudflare")
-		sys.exit()
-
 	if live_record is not None and server_ip != cached_record:
 		try:
-			fh = open(dns_cache, 'w')
-			fh.write(live_record + " " + live_record_id)
+			with open(dns_cache, 'w') as fh:
+				cached_results = {}
+				cached_results['domain'] = domain
+				cached_results['live_record'] = live_record
+				cached_results['live_record_id'] = live_record_id
+				json.dump(cached_results, fh)
 		except FileNotFoundError:
 			print_log(dns_cache + " not found")
 			sys.exit()
@@ -107,9 +111,23 @@ def main():
 		log_entry = "cached CF response: " + live_record + " " + live_record_id
 		print_log(log_entry)
 
-	if live_record is not None and live_record != server_ip:
-		cf.zones.dns_records.put(zone_id,live_record_id,data={'name':domain, 'type':'A', 'content':server_ip})
-		print_log("updated CF")
+	new_dns_record = {'name':domain, 'type':record_type, 'content':server_ip}
+
+	if live_record != server_ip:
+		if live_record_id is not None:
+			try:
+				cf.zones.dns_records.put(zone_id,live_record_id,data=new_dns_record)
+			except CloudFlare.exceptions.CloudFlareAPIError as e:
+				exit('/zones.dns_records.post %s %s - %d %s' % (zone_name, new_dns_record['name'], e, e))
+				sys.exit()
+			print_log("Updated " + domain + " to " + server_ip)
+		else:
+			try:
+				cf.zones.dns_records.post(zone_id,data=new_dns_record)
+			except CloudFlare.exceptions.CloudFlareAPIError as e:
+				exit('/zones.dns_records.post %s %s - %d %s' % (zone_name, new_dns_record['name'], e, e))
+				sys.exit()
+			print_log("Created " + record_type + " record for " + domain + " with contents: " + server_ip)
 	else:
 		print_log("live record and server IP match")
 
